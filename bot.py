@@ -11,7 +11,7 @@ from datetime import datetime
 import uuid, re, base64, json, httpx
 
 # ========= CONFIG =========
-VERSION = "2.5.0 | 2026-04-25"
+VERSION = "2.5.1 | 2026-04-26"
 from config import TOKEN, OPENAI_API_KEY, ADMINS, PHOTOS_CHANNEL_ID, SHEET_NAME
 
 scope = [
@@ -36,7 +36,7 @@ sheet   = gclient.open(SHEET_NAME).sheet1
     ADD_MORE,
     ADMIN_MENU, ADD_OP_ID, ADD_OP_NAME, ADD_OP_WINDOW, ADD_OP_ROLE,
     VIEW_OPS, DELETE_OP, EDIT_OP_SELECT, EDIT_OP_CHOOSE, EDIT_OP_FIELD, EDIT_OP_VALUE,
-) = range(35)
+) = range(36)
 
 # ========= KEYBOARDS =========
 main_keyboard = ReplyKeyboardMarkup(
