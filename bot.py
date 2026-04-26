@@ -11,7 +11,7 @@ from datetime import datetime
 import uuid, re, base64, json, httpx
 
 # ========= CONFIG =========
-VERSION = "2.4.1 | 2026-04-24"
+VERSION = "2.5.0 | 2026-04-25"
 from config import TOKEN, OPENAI_API_KEY, ADMINS, PHOTOS_CHANNEL_ID, SHEET_NAME
 
 scope = [
@@ -31,10 +31,12 @@ sheet   = gclient.open(SHEET_NAME).sheet1
     SCAN_BANK, CONFIRM_BANK,
     EDIT_BANK, EDIT_ACCOUNT,
     NAME, PHONE, OPERATOR, IDNUM, BANK, ACCOUNT,
+    REVIEW, REVIEW_FIELD,
+    REVIEW_NAME, REVIEW_IDNUM, REVIEW_PHONE, REVIEW_OPERATOR, REVIEW_BANK, REVIEW_ACCOUNT,
     ADD_MORE,
     ADMIN_MENU, ADD_OP_ID, ADD_OP_NAME, ADD_OP_WINDOW, ADD_OP_ROLE,
     VIEW_OPS, DELETE_OP, EDIT_OP_SELECT, EDIT_OP_CHOOSE, EDIT_OP_FIELD, EDIT_OP_VALUE,
-) = range(28)
+) = range(35)
 
 # ========= KEYBOARDS =========
 main_keyboard = ReplyKeyboardMarkup(
@@ -790,20 +792,149 @@ async def get_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await _save_person_ask_more(update, context)
 
 async def _save_person_ask_more(update, context):
-    context.user_data["group"].append({
-        "name":        context.user_data["name"],
-        "phone":       context.user_data["phone"],
-        "operator":    context.user_data["operator"],
-        "idnum":       context.user_data["idnum"],
-        "bank":        context.user_data["bank"],
-        "account":     context.user_data["account"],
-        "id_file_id":  context.user_data.pop("id_file_id",   None),
-        "bank_file_id":context.user_data.pop("bank_file_id", None),
-    })
-    await update.message.reply_text(
-        "Добавить ещё одного человека?", reply_markup=add_more_keyboard
+    """Сначала показываем экран проверки, и только после ✅ — сохраняем в группу."""
+    return await show_review_screen(update, context)
+
+async def show_review_screen(update, context):
+    """Показывает сводку всех данных текущего человека."""
+    text = (
+        "📋 ПРОВЕРЬТЕ ДАННЫЕ\n\n"
+        f"👤 {context.user_data.get('name', '—')}\n"
+        f"🪪 {context.user_data.get('idnum', '—')}\n"
+        f"📱 {context.user_data.get('phone', '—')} ({context.user_data.get('operator', '—')})\n"
+        f"🏦 {context.user_data.get('bank', '—')}\n"
+        f"💳 {context.user_data.get('account', '—')}"
     )
-    return ADD_MORE
+    kbd = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Всё верно", callback_data="review_ok")],
+        [InlineKeyboardButton("✏️ Исправить", callback_data="review_edit")],
+    ])
+    if update.callback_query:
+        await update.callback_query.message.reply_text(text, reply_markup=kbd)
+    else:
+        await update.message.reply_text(text, reply_markup=kbd, reply_markup_remove=False) if False else await update.message.reply_text(text, reply_markup=kbd)
+    return REVIEW
+
+async def review_action(update, context):
+    """Обработка кнопок на экране проверки."""
+    query = update.callback_query
+    await query.answer()
+    if query.data == "review_ok":
+        # Сохраняем в группу
+        context.user_data["group"].append({
+            "name":        context.user_data["name"],
+            "phone":       context.user_data["phone"],
+            "operator":    context.user_data["operator"],
+            "idnum":       context.user_data["idnum"],
+            "bank":        context.user_data["bank"],
+            "account":     context.user_data["account"],
+            "id_file_id":  context.user_data.pop("id_file_id",   None),
+            "bank_file_id":context.user_data.pop("bank_file_id", None),
+        })
+        await query.edit_message_text("✅ Данные сохранены")
+        await query.message.reply_text(
+            "Добавить ещё одного человека?", reply_markup=add_more_keyboard
+        )
+        return ADD_MORE
+    elif query.data == "review_edit":
+        await query.edit_message_text(
+            "Что исправить?",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("👤 ФИО", callback_data="rf_name")],
+                [InlineKeyboardButton("🪪 ID номер", callback_data="rf_idnum")],
+                [InlineKeyboardButton("📱 Телефон", callback_data="rf_phone")],
+                [InlineKeyboardButton("📞 Оператор", callback_data="rf_operator")],
+                [InlineKeyboardButton("🏦 Банк", callback_data="rf_bank")],
+                [InlineKeyboardButton("💳 Номер счёта", callback_data="rf_account")],
+                [InlineKeyboardButton("⬅️ Назад к проверке", callback_data="rf_back")],
+            ])
+        )
+        return REVIEW_FIELD
+
+async def review_field(update, context):
+    """Запрос новой версии конкретного поля."""
+    query = update.callback_query
+    await query.answer()
+    field = query.data
+    if field == "rf_back":
+        await query.message.delete()
+        return await show_review_screen(update, context)
+    if field == "rf_name":
+        await query.edit_message_text(f"Текущее ФИО: {context.user_data.get('name','—')}\n\nВведите новое ФИО (только латиница):")
+        return REVIEW_NAME
+    if field == "rf_idnum":
+        await query.edit_message_text(f"Текущий ID: {context.user_data.get('idnum','—')}\n\nВведите новый ID (13 цифр):")
+        return REVIEW_IDNUM
+    if field == "rf_phone":
+        await query.edit_message_text(f"Текущий телефон: {context.user_data.get('phone','—')}\n\nВведите новый номер (010-XXXX-XXXX):")
+        return REVIEW_PHONE
+    if field == "rf_operator":
+        await query.edit_message_text(f"Текущий оператор: {context.user_data.get('operator','—')}")
+        await query.message.reply_text("Выберите оператора:", reply_markup=operator_keyboard)
+        return REVIEW_OPERATOR
+    if field == "rf_bank":
+        await query.edit_message_text(f"Текущий банк: {context.user_data.get('bank','—')}")
+        await query.message.reply_text("Выберите банк:", reply_markup=bank_keyboard)
+        return REVIEW_BANK
+    if field == "rf_account":
+        await query.edit_message_text(f"Текущий счёт: {context.user_data.get('account','—')}\n\nВведите новый номер счёта:")
+        return REVIEW_ACCOUNT
+
+async def review_save_name(update, context):
+    text = update.message.text.strip()
+    ok, msg = validate_name(text)
+    if not ok:
+        await update.message.reply_text(f"❌ {msg}\n\nВведите ФИО ещё раз:")
+        return REVIEW_NAME
+    context.user_data["name"] = text.upper()
+    await update.message.reply_text("✅ Обновлено")
+    return await show_review_screen(update, context)
+
+async def review_save_idnum(update, context):
+    digits = re.sub(r"[^0-9]", "", update.message.text.strip())
+    if not validate_korean_id(digits):
+        await update.message.reply_text("❌ Неверный ID. Введите 13 цифр:")
+        return REVIEW_IDNUM
+    context.user_data["idnum"] = format_korean_id(digits)
+    await update.message.reply_text("✅ Обновлено")
+    return await show_review_screen(update, context)
+
+async def review_save_phone(update, context):
+    digits = re.sub(r"[^0-9]", "", update.message.text.strip())
+    if not (digits.startswith("010") and len(digits) == 11):
+        await update.message.reply_text("❌ Неверный формат. Введите 010-XXXX-XXXX:")
+        return REVIEW_PHONE
+    context.user_data["phone"] = f"{digits[:3]}-{digits[3:7]}-{digits[7:]}"
+    await update.message.reply_text("✅ Обновлено")
+    return await show_review_screen(update, context)
+
+async def review_save_operator(update, context):
+    op = update.message.text.strip()
+    if op not in VALID_OPERATORS:
+        await update.message.reply_text("❌ Выберите оператора из списка:", reply_markup=operator_keyboard)
+        return REVIEW_OPERATOR
+    context.user_data["operator"] = op
+    await update.message.reply_text("✅ Обновлено", reply_markup=ReplyKeyboardRemove())
+    return await show_review_screen(update, context)
+
+async def review_save_bank(update, context):
+    bank = update.message.text.strip()
+    if bank not in BANK_INFO:
+        await update.message.reply_text("❌ Выберите банк из списка:", reply_markup=bank_keyboard)
+        return REVIEW_BANK
+    context.user_data["bank"] = bank
+    await update.message.reply_text("✅ Обновлено", reply_markup=ReplyKeyboardRemove())
+    return await show_review_screen(update, context)
+
+async def review_save_account(update, context):
+    digits = re.sub(r"[^0-9]", "", update.message.text.strip())
+    bank = context.user_data.get("bank", "")
+    if not validate_account(digits, bank):
+        await update.message.reply_text("❌ Неверный счёт. Введите ещё раз:")
+        return REVIEW_ACCOUNT
+    context.user_data["account"] = digits
+    await update.message.reply_text("✅ Обновлено")
+    return await show_review_screen(update, context)
 
 # ========= SAVE GROUP =========
 
@@ -1386,6 +1517,14 @@ conv_handler = ConversationHandler(
         IDNUM:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_idnum)],
         BANK:     [MessageHandler(filters.TEXT & ~filters.COMMAND, get_bank)],
         ACCOUNT:  [MessageHandler(filters.TEXT & ~filters.COMMAND, get_account)],
+        REVIEW:           [CallbackQueryHandler(review_action, pattern="^review_")],
+        REVIEW_FIELD:     [CallbackQueryHandler(review_field,  pattern="^rf_")],
+        REVIEW_NAME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, review_save_name)],
+        REVIEW_IDNUM:     [MessageHandler(filters.TEXT & ~filters.COMMAND, review_save_idnum)],
+        REVIEW_PHONE:     [MessageHandler(filters.TEXT & ~filters.COMMAND, review_save_phone)],
+        REVIEW_OPERATOR:  [MessageHandler(filters.TEXT & ~filters.COMMAND, review_save_operator)],
+        REVIEW_BANK:      [MessageHandler(filters.TEXT & ~filters.COMMAND, review_save_bank)],
+        REVIEW_ACCOUNT:   [MessageHandler(filters.TEXT & ~filters.COMMAND, review_save_account)],
         ADD_MORE: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_more)],
         ADMIN_MENU:     [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_menu)],
         ADD_OP_ID:      [MessageHandler(filters.TEXT & ~filters.COMMAND, add_op_id)],
