@@ -11,7 +11,7 @@ from datetime import datetime
 import uuid, re, base64, json, httpx
 
 # ========= CONFIG =========
-VERSION = "2.5.1 | 2026-04-26"
+VERSION = "2.5.3 | 2026-04-27"
 from config import TOKEN, OPENAI_API_KEY, ADMINS, PHOTOS_CHANNEL_ID, SHEET_NAME
 
 scope = [
@@ -1102,12 +1102,27 @@ async def next_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Помечаем всех "вызван"
     for row_idx, _, _, _ in group_members:
         sheet.update_cell(row_idx, 9, "вызван")
+    # Определяем стол оператора, который вызывает
+    operator_id = update.effective_user.id
+    operator_window = None
+    operator_name   = None
+    try:
+        ops_sheet = gclient.open(SHEET_NAME).worksheet("Операторы")
+        ops = ops_sheet.get_all_values()
+        for op in ops[1:]:
+            if len(op) >= 3 and str(op[0]) == str(operator_id):
+                operator_name   = op[1]
+                operator_window = op[2]
+                break
+    except Exception as e:
+        print(f"[NEXT] Не удалось определить стол оператора: {e}")
     # Уведомление клиенту
     extra_text = f"\n👥 Вместе с вами: {extra} человек" if extra > 0 else ""
+    table_text = f"\n🪟 Подойдите к столу №{operator_window}" if operator_window else ""
     try:
         await context.bot.send_message(
             int(telegram_id),
-            f"🔔 Вас вызывают!\n№{queue_number} — {name}{extra_text}"
+            f"🔔 Вас вызывают!\n№{queue_number} — {name}{table_text}{extra_text}"
         )
     except Exception as e:
         print(f"[NEXT] Ошибка уведомления: {e}")
@@ -1170,7 +1185,7 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = "👥 СПИСОК ОПЕРАТОРОВ\n\n"
         for op in ops[1:]:
             if len(op) >= 4:
-                msg += f"👤 {op[1]} · 🪟 Окно {op[2]} · {op[3]}\n"
+                msg += f"👤 {op[1]} · 🪟 Стол {op[2]} · {op[3]}\n"
         await update.message.reply_text(msg, reply_markup=admin_menu_keyboard)
         return ADMIN_MENU
     
@@ -1180,7 +1195,7 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(ops) <= 1:
             await update.message.reply_text("📭 Операторов нет")
             return ADMIN_MENU
-        btns = [[InlineKeyboardButton(f"{op[1]} (Окно {op[2]})", callback_data=f"del_op_{op[0]}")] 
+        btns = [[InlineKeyboardButton(f"{op[1]} (Стол {op[2]})", callback_data=f"del_op_{op[0]}")] 
                 for op in ops[1:] if len(op) >= 2]
         await update.message.reply_text(
             "Выберите оператора для удаления:",
@@ -1198,7 +1213,7 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(ops) <= 1:
             await update.message.reply_text("📭 Операторов нет", reply_markup=admin_menu_keyboard)
             return ADMIN_MENU
-        btns = [[InlineKeyboardButton(f"{op[1]} (Окно {op[2]})", callback_data=f"edit_op_{op[0]}")]
+        btns = [[InlineKeyboardButton(f"{op[1]} (Стол {op[2]})", callback_data=f"edit_op_{op[0]}")]
                 for op in ops[1:] if len(op) >= 2]
         btns.append([InlineKeyboardButton("❌ Отмена", callback_data="edit_cancel")])
         await update.message.reply_text(
@@ -1274,32 +1289,32 @@ async def add_op_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ADD_OP_NAME
     context.user_data["op_name"] = name
     await update.message.reply_text(
-        f"✅ Имя: {name}\n\nШаг 3/4: Введите номер окна/стола\nПример: 1",
+        f"✅ Имя: {name}\n\nШаг 3/4: Введите номер стола\nПример: 1",
         reply_markup=ReplyKeyboardMarkup([["❌ Отмена"]], resize_keyboard=True)
     )
     return ADD_OP_WINDOW
 
 async def add_op_window(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ввод номера окна."""
+    """Ввод номера стола."""
     window = update.message.text.strip()
     if window == "❌ Отмена":
         return await cancel_to_admin(update, context)
-    # Проверка занятости окна
+    # Проверка занятости стола
     try:
         ops_sheet = gclient.open(SHEET_NAME).worksheet("Операторы")
         ops = ops_sheet.get_all_values()
         for op in ops[1:]:
             if len(op) >= 3 and op[2] == window:
                 await update.message.reply_text(
-                    f"❌ Окно {window} уже занято оператором {op[1]}\n\nВведите другой номер:",
+                    f"❌ Стол {window} уже занят оператором {op[1]}\n\nВведите другой номер:",
                     reply_markup=ReplyKeyboardMarkup([["❌ Отмена"]], resize_keyboard=True)
                 )
                 return ADD_OP_WINDOW
     except Exception as e:
-        print(f"[CHECK] Ошибка проверки окна: {e}")
+        print(f"[CHECK] Ошибка проверки стола: {e}")
     context.user_data["op_window"] = window
     await update.message.reply_text(
-        f"✅ Окно: {window}\n\nШаг 4/4: Выберите роль",
+        f"✅ Стол: {window}\n\nШаг 4/4: Выберите роль",
         reply_markup=ReplyKeyboardRemove()
     )
     await update.message.reply_text("Роль:", reply_markup=role_keyboard)
@@ -1323,7 +1338,7 @@ async def add_op_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(
             f"✅ Оператор добавлен!\n"
             f"👤 {op_name}\n"
-            f"🪟 Окно {op_window}\n"
+            f"🪟 Стол {op_window}\n"
             f"📍 Роль: {role}"
         )
         context.user_data.clear()
@@ -1382,10 +1397,10 @@ async def edit_op_select(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ADMIN_MENU
         context.user_data["edit_op_row"] = row
         await query.edit_message_text(
-            f"👤 {row[1]}\n🪟 Окно {row[2]}\n📍 {row[3]}\n\nЧто изменить?",
+            f"👤 {row[1]}\n🪟 Стол {row[2]}\n📍 {row[3]}\n\nЧто изменить?",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("✏️ Имя",  callback_data="edit_field_name")],
-                [InlineKeyboardButton("🪟 Окно", callback_data="edit_field_window")],
+                [InlineKeyboardButton("🪟 Стол", callback_data="edit_field_window")],
                 [InlineKeyboardButton("📍 Роль", callback_data="edit_field_role")],
                 [InlineKeyboardButton("❌ Отмена", callback_data="edit_cancel_field")],
             ])
@@ -1408,7 +1423,7 @@ async def edit_op_field(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if field == "role":
         await query.edit_message_text("Выберите новую роль:", reply_markup=role_keyboard)
         return EDIT_OP_VALUE
-    prompts = {"name": "Введите новое имя и фамилию:", "window": "Введите новый номер окна:"}
+    prompts = {"name": "Введите новое имя и фамилию:", "window": "Введите новый номер стола:"}
     await query.edit_message_text(prompts[field])
     await query.message.reply_text(
         "Введите значение:",
@@ -1436,7 +1451,7 @@ async def edit_op_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return EDIT_OP_VALUE
             col = 2
         elif field == "window":
-            # Проверка занятости окна
+            # Проверка занятости стола
             try:
                 ops_sheet_check = gclient.open(SHEET_NAME).worksheet("Операторы")
                 ops_check = ops_sheet_check.get_all_values()
@@ -1444,12 +1459,12 @@ async def edit_op_value(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for op in ops_check[1:]:
                     if len(op) >= 3 and op[2] == new_value and op[0] != edit_op_id:
                         await update.message.reply_text(
-                            f"❌ Окно {new_value} уже занято оператором {op[1]}\n\nВведите другой номер:",
+                            f"❌ Стол {new_value} уже занят оператором {op[1]}\n\nВведите другой номер:",
                             reply_markup=ReplyKeyboardMarkup([["❌ Отмена"]], resize_keyboard=True)
                         )
                         return EDIT_OP_VALUE
             except Exception as e:
-                print(f"[CHECK] Ошибка проверки окна: {e}")
+                print(f"[CHECK] Ошибка проверки стола: {e}")
             col = 3
         else:
             col = 2
