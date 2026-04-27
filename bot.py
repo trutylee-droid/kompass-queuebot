@@ -11,7 +11,7 @@ from datetime import datetime
 import uuid, re, base64, json, httpx
 
 # ========= CONFIG =========
-VERSION = "2.5.3 | 2026-04-27"
+VERSION = "2.5.4 | 2026-04-27"
 from config import TOKEN, OPENAI_API_KEY, ADMINS, PHOTOS_CHANNEL_ID, SHEET_NAME
 
 scope = [
@@ -1082,25 +1082,25 @@ async def next_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Очередь пуста")
         return
     gid = order[0]
-    # Собираем ВСЕХ людей в группе
-    group_members = []  # (row_index, queue_number, name, tg_id)
+    # Собираем ВСЕХ людей в группе с полными данными
+    group_members = []  # (row_index, queue_number, name, tg_id, full_row)
     for i, r in enumerate(rows[1:], 2):
         if len(r) > 10 and r[10] == gid:
             try:
                 qn = int(r[0])
             except (ValueError, TypeError):
                 qn = 0
-            group_members.append((i, qn, r[2], r[9]))
-    # Сортируем по queue_number (на случай если строки в неверном порядке)
+            group_members.append((i, qn, r[2], r[9], r))
+    # Сортируем по queue_number
     group_members.sort(key=lambda x: x[1])
     if not group_members:
         await update.message.reply_text("Очередь пуста")
         return
-    main_row, queue_number, name, telegram_id = group_members[0]
+    main_row, queue_number, name, telegram_id, main_data = group_members[0]
     group_size = len(group_members)
-    extra = group_size - 1  # сколько ещё в группе
+    extra = group_size - 1
     # Помечаем всех "вызван"
-    for row_idx, _, _, _ in group_members:
+    for row_idx, _, _, _, _ in group_members:
         sheet.update_cell(row_idx, 9, "вызван")
     # Определяем стол оператора, который вызывает
     operator_id = update.effective_user.id
@@ -1126,11 +1126,25 @@ async def next_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         print(f"[NEXT] Ошибка уведомления: {e}")
-    # Уведомление оператору
-    extra_op = f" (+{extra} человек)" if extra > 0 else ""
-    await update.message.reply_text(
-        f"➡️ Вызван №{queue_number} — {name}{extra_op}"
-    )
+    # Уведомление оператору — с полной информацией о клиенте(ах)
+    def format_person(row):
+        # row: № | Время | ФИО | Телефон | Оператор | ID | Банк | Счёт | Статус | TG_ID | GID | ...
+        parts = []
+        if len(row) > 2 and row[2]: parts.append(f"👤 {row[2]}")
+        if len(row) > 3 and row[3]: parts.append(f"📱 {row[3]}")
+        if len(row) > 4 and row[4]: parts.append(f"📞 {row[4]}")
+        if len(row) > 5 and row[5]: parts.append(f"🪪 {row[5]}")
+        if len(row) > 6 and row[6]: parts.append(f"🏦 {row[6]}")
+        if len(row) > 7 and row[7]: parts.append(f"💳 {row[7]}")
+        return "\n".join(parts)
+    msg = f"➡️ Вызван №{queue_number}"
+    if extra > 0:
+        msg += f"  ·  Группа: {group_size} чел"
+    msg += "\n\n" + format_person(main_data)
+    if extra > 0:
+        for idx, (_, _, _, _, row) in enumerate(group_members[1:], 2):
+            msg += f"\n\n— {idx}-й человек —\n" + format_person(row)
+    await update.message.reply_text(msg)
     updated_rows = sheet.get_all_values()
     await send_queue_notifications(context, updated_rows)
 
