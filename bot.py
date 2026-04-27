@@ -11,7 +11,7 @@ from datetime import datetime
 import uuid, re, base64, json, httpx
 
 # ========= CONFIG =========
-VERSION = "2.6.1 | 2026-04-27"
+VERSION = "2.6.2 | 2026-04-27"
 from config import TOKEN, OPENAI_API_KEY, ADMINS, PHOTOS_CHANNEL_ID, SHEET_NAME
 
 scope = [
@@ -243,6 +243,10 @@ async def gpt_extract_id(photo_bytes):
         "Please read all the text visible in this document image. "
         "Find and extract: "
         "1) The person's full name written in Latin letters (romanized). "
+        "   IMPORTANT: If the name is split across two lines with a hyphen at the end of the first line "
+        "   (e.g. 'VISS-' on one line and 'ARIONOVNA' on the next), MERGE them WITHOUT the hyphen "
+        "   (correct: 'VISSARIONOVNA', not 'VISS-ARIONOVNA'). "
+        "   The result must contain only Latin letters and SPACES between words — no hyphens inside a word. "
         "2) A number in the format XXXXXX-XXXXXXX (6 digits, dash, 7 digits). "
         "Return ONLY a JSON object, no explanation:\n"
         '{"name": "LATIN NAME HERE", "idnum": "XXXXXX-XXXXXXX"}\n'
@@ -280,6 +284,13 @@ async def gpt_extract_id(photo_bytes):
     # Проверяем что оба поля не null
     if not data.get("name") or not data.get("idnum"):
         raise ValueError("Fields are null")
+    # Пост-обработка: убираем дефисы переноса слов в имени
+    # (если GPT всё-таки оставил дефис между буквами, например VISS-ARIONOVNA)
+    if data.get("name"):
+        # Удаляем дефис если он окружён буквами (а не пробелами)
+        data["name"] = re.sub(r"(?<=[A-Za-zА-Яа-я])-(?=[A-Za-zА-Яа-я])", "", data["name"])
+        # Также убираем повторяющиеся пробелы
+        data["name"] = re.sub(r"\s+", " ", data["name"]).strip()
     return data
 
 async def gpt_extract_bank(photo_bytes):
