@@ -11,7 +11,7 @@ from datetime import datetime
 import uuid, re, base64, json, httpx
 
 # ========= CONFIG =========
-VERSION = "2.5.4 | 2026-04-27"
+VERSION = "2.6.1 | 2026-04-27"
 from config import TOKEN, OPENAI_API_KEY, ADMINS, PHOTOS_CHANNEL_ID, SHEET_NAME
 
 scope = [
@@ -36,7 +36,8 @@ sheet   = gclient.open(SHEET_NAME).sheet1
     ADD_MORE,
     ADMIN_MENU, ADD_OP_ID, ADD_OP_NAME, ADD_OP_WINDOW, ADD_OP_ROLE,
     VIEW_OPS, DELETE_OP, EDIT_OP_SELECT, EDIT_OP_CHOOSE, EDIT_OP_FIELD, EDIT_OP_VALUE,
-) = range(36)
+    MANUAL_NAME, MANUAL_IDNUM,
+) = range(38)
 
 # ========= KEYBOARDS =========
 main_keyboard = ReplyKeyboardMarkup(
@@ -49,7 +50,7 @@ add_more_keyboard = ReplyKeyboardMarkup(
 )
 admin_keyboard = ReplyKeyboardMarkup(
     [["➡️ Следующий", "📋 Вся очередь"],
-     ["⚙️ Админ-панель"]],
+     ["📝 Записать вручную", "⚙️ Админ-панель"]],
     resize_keyboard=True,
 )
 admin_menu_keyboard = ReplyKeyboardMarkup([
@@ -1116,16 +1117,20 @@ async def next_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
     except Exception as e:
         print(f"[NEXT] Не удалось определить стол оператора: {e}")
-    # Уведомление клиенту
+    # Уведомление клиенту (если у него есть Telegram, т.е. TG_ID != 0)
     extra_text = f"\n👥 Вместе с вами: {extra} человек" if extra > 0 else ""
     table_text = f"\n🪟 Подойдите к столу №{operator_window}" if operator_window else ""
-    try:
-        await context.bot.send_message(
-            int(telegram_id),
-            f"🔔 Вас вызывают!\n№{queue_number} — {name}{table_text}{extra_text}"
-        )
-    except Exception as e:
-        print(f"[NEXT] Ошибка уведомления: {e}")
+    has_telegram = str(telegram_id) not in ("0", "", "—")
+    if has_telegram:
+        try:
+            await context.bot.send_message(
+                int(telegram_id),
+                f"🔔 Вас вызывают!\n№{queue_number} — {name}{table_text}{extra_text}"
+            )
+        except Exception as e:
+            print(f"[NEXT] Ошибка уведомления: {e}")
+    else:
+        print(f"[NEXT] Клиент №{queue_number} без Telegram — голосовой вызов")
     # Уведомление оператору — с полной информацией о клиенте(ах)
     def format_person(row):
         # row: № | Время | ФИО | Телефон | Оператор | ID | Банк | Счёт | Статус | TG_ID | GID | ...
@@ -1140,10 +1145,15 @@ async def next_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = f"➡️ Вызван №{queue_number}"
     if extra > 0:
         msg += f"  ·  Группа: {group_size} чел"
+    if not has_telegram:
+        msg += "\n\n📢 БЕЗ TELEGRAM — ПОЗОВИТЕ ГОЛОСОМ"
     msg += "\n\n" + format_person(main_data)
     if extra > 0:
         for idx, (_, _, _, _, row) in enumerate(group_members[1:], 2):
-            msg += f"\n\n— {idx}-й человек —\n" + format_person(row)
+            extra_tg = row[9] if len(row) > 9 else "0"
+            extra_no_tg = str(extra_tg) in ("0", "", "—")
+            label = " (без Telegram)" if extra_no_tg else ""
+            msg += f"\n\n— {idx}-й человек{label} —\n" + format_person(row)
     await update.message.reply_text(msg)
     updated_rows = sheet.get_all_values()
     await send_queue_notifications(context, updated_rows)
@@ -1573,6 +1583,76 @@ conv_handler = ConversationHandler(
     allow_reentry=True,
 )
 
+
+async def manual_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Начало ручной записи в очередь (для клиентов без Telegram)."""
+    if not is_operator(update.effective_user.id):
+        await update.message.reply_text("❌ Только для операторов")
+        return ConversationHandler.END
+    await update.message.reply_text(
+        "📝 РУЧНАЯ ЗАПИСЬ В ОЧЕРЕДЬ\n\n"
+        "Шаг 1/2: Введите ФИО клиента\n"
+        "(только латиница · пример: KIM MINJUN)\n\n"
+        "💡 Нажмите ❌ Отмена чтобы выйти",
+        reply_markup=ReplyKeyboardMarkup([["❌ Отмена"]], resize_keyboard=True)
+    )
+    return MANUAL_NAME
+
+async def manual_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимаем ФИО."""
+    text = update.message.text.strip()
+    if text == "❌ Отмена":
+        await update.message.reply_text("❌ Действие отменено", reply_markup=admin_keyboard)
+        return ConversationHandler.END
+    if len(text.split()) < 2:
+        await update.message.reply_text(
+            "❌ Введите минимум имя и фамилию",
+            reply_markup=ReplyKeyboardMarkup([["❌ Отмена"]], resize_keyboard=True)
+        )
+        return MANUAL_NAME
+    context.user_data["manual_name"] = text.upper()
+    await update.message.reply_text(
+        f"✅ ФИО: {text.upper()}\n\nШаг 2/2: Введите ID-номер (13 цифр)\nПример: 9012311234567",
+        reply_markup=ReplyKeyboardMarkup([["❌ Отмена"]], resize_keyboard=True)
+    )
+    return MANUAL_IDNUM
+
+async def manual_idnum(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимаем ID и сохраняем в очередь."""
+    text = update.message.text.strip()
+    if text == "❌ Отмена":
+        context.user_data.pop("manual_name", None)
+        await update.message.reply_text("❌ Действие отменено", reply_markup=admin_keyboard)
+        return ConversationHandler.END
+    digits = re.sub(r"[^0-9]", "", text)
+    if len(digits) != 13:
+        await update.message.reply_text(
+            "❌ Неверный ID. Введите 13 цифр:",
+            reply_markup=ReplyKeyboardMarkup([["❌ Отмена"]], resize_keyboard=True)
+        )
+        return MANUAL_IDNUM
+    formatted_id = f"{digits[:6]}-{digits[6:]}"
+    name = context.user_data.get("manual_name", "")
+    # Сохраняем в Sheets
+    rows = sheet.get_all_values()
+    queue_id = get_next_id(rows)
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    gid = f"M{queue_id}"  # M = manual
+    sheet.append_row([
+        queue_id, now, name, "—", "—", formatted_id,
+        "—", "—", "ожидание", "0", gid, "", ""
+    ])
+    context.user_data.pop("manual_name", None)
+    await update.message.reply_text(
+        f"✅ ЗАПИСАН В ОЧЕРЕДЬ\n\n"
+        f"📍 №{queue_id}\n"
+        f"👤 {name}\n"
+        f"🪪 {formatted_id}\n\n"
+        f"💡 У клиента нет Telegram — позовите его сами по имени когда подойдёт очередь.",
+        reply_markup=admin_keyboard
+    )
+    return ConversationHandler.END
+
 async def version_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🤖 KOMPASS QueueBot\nВерсия: {VERSION}")
 
@@ -1581,6 +1661,20 @@ app.add_handler(CommandHandler("version", version_cmd))
 app.add_handler(MessageHandler(filters.Regex("^📊 Проверить очередь$"), check_queue))
 app.add_handler(MessageHandler(filters.Regex("^📋 Вся очередь$"), show_queue))
 app.add_handler(MessageHandler(filters.Regex("^➡️ Следующий$"), next_client))
+
+# ConversationHandler для ручной записи в очередь (без Telegram у клиента)
+manual_handler = ConversationHandler(
+    entry_points=[
+        MessageHandler(filters.Regex("^📝 Записать вручную$"), manual_start),
+    ],
+    states={
+        MANUAL_NAME:  [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_name)],
+        MANUAL_IDNUM: [MessageHandler(filters.TEXT & ~filters.COMMAND, manual_idnum)],
+    },
+    fallbacks=[],
+    allow_reentry=True,
+)
+app.add_handler(manual_handler)
 app.add_handler(conv_handler)
 
 
