@@ -11,7 +11,7 @@ from datetime import datetime
 import uuid, re, base64, json, httpx
 
 # ========= CONFIG =========
-VERSION = "2.6.4 | 2026-04-27"
+VERSION = "2.7.0 | 2026-04-27"
 from config import TOKEN, OPENAI_API_KEY, ADMINS, PHOTOS_CHANNEL_ID, SHEET_NAME
 
 scope = [
@@ -149,7 +149,7 @@ def format_korean_id(digits):
     return f"{digits[:6]}-{digits[6:]}"
 
 def is_duplicate_id(idnum, rows):
-    return any(r[5] == idnum and r[8] == "ожидание" for r in rows[1:])
+    return any(len(r) > 10 and r[3] == idnum and r[10] == "ожидание" for r in rows[1:])
 
 def validate_account(digits, bank):
     # Проверяем только что введены цифры и минимум 8 символов
@@ -173,8 +173,8 @@ def get_today_groups(rows):
     today = datetime.now().strftime("%Y-%m-%d")
     groups = {}
     for r in rows[1:]:
-        if r[1].startswith(today) and r[8] == "ожидание":
-            groups[r[10]] = groups.get(r[10], 0) + 1
+        if len(r) > 14 and r[1].startswith(today) and r[10] == "ожидание":
+            groups[r[14]] = groups.get(r[14], 0) + 1
     return groups
 
 def get_order(rows):
@@ -183,18 +183,18 @@ def get_order(rows):
     seen = set()
     pairs = []  # (queue_number, gid)
     for r in rows[1:]:
-        if len(r) > 10 and r[1].startswith(today) and r[8] == "ожидание":
-            if r[10] not in seen:
-                seen.add(r[10])
+        if len(r) > 14 and r[1].startswith(today) and r[10] == "ожидание":
+            if r[14] not in seen:
+                seen.add(r[14])
                 try:
-                    pairs.append((int(r[0]), r[10]))
+                    pairs.append((int(r[0]), r[14]))
                 except (ValueError, TypeError):
                     pass
-    pairs.sort()  # сортируем по номеру очереди
+    pairs.sort()
     return [g for _, g in pairs]
 
 def user_already_in_queue(tg_id, rows):
-    return any(r[9] == str(tg_id) and r[8] == "ожидание" for r in rows[1:])
+    return any(len(r) > 13 and r[13] == str(tg_id) and r[10] == "ожидание" for r in rows[1:])
 
 # ========= ОТПРАВКА ФОТО В КАНАЛ =========
 
@@ -1014,14 +1014,21 @@ async def add_more(update: Update, context: ContextTypes.DEFAULT_TYPE):
         id_link, bank_link = await forward_photos_to_channel(context.bot, p, queue_id)
 
         sheet.append_row([
-            queue_id, now,
-            p["name"], p["phone"], p["operator"],
-            p["idnum"], p["bank"], p["account"],
-            "ожидание",
-            str(update.effective_user.id),
-            group_id,
-            id_link,
-            bank_link,
+            queue_id,                           # 1: №
+            now,                                # 2: Дата
+            p["name"],                          # 3: ФИО
+            p["idnum"],                         # 4: ID
+            p["phone"],                         # 5: Телефон
+            p["operator"],                      # 6: Оператор
+            p["account"],                       # 7: Номер счёта
+            p["bank"],                          # 8: Банк
+            "",                                 # 9: Комментарий (пустой)
+            "",                                 # 10: Сотрудник (пустой, заполнится при вызове)
+            "ожидание",                         # 11: Статус заявки
+            id_link,                            # 12: Ссылка на ID
+            bank_link,                          # 13: Ссылка на банк книжку
+            str(update.effective_user.id),      # 14: TG_ID
+            group_id,                           # 15: GID
         ])
 
     # Считаем сколько человек впереди
@@ -1046,8 +1053,8 @@ async def check_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order = get_order(rows)
     user_gid = user_id = None
     for r in rows[1:]:
-        if str(update.effective_user.id) == r[9] and r[8] == "ожидание":
-            user_gid, user_id = r[10], r[0]
+        if len(r) > 14 and str(update.effective_user.id) == r[13] and r[10] == "ожидание":
+            user_gid, user_id = r[14], r[0]
             break
     if not user_gid:
         await update.message.reply_text("Вы не в очереди", reply_markup=main_keyboard)
@@ -1073,9 +1080,9 @@ async def show_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_names    = {}
     queue_numbers  = {}
     for r in rows[1:]:
-        if len(r) > 10 and r[8] == "ожидание" and r[10] not in first_names:
-            first_names[r[10]]   = r[2]
-            queue_numbers[r[10]] = r[0]
+        if len(r) > 14 and r[10] == "ожидание" and r[14] not in first_names:
+            first_names[r[14]]   = r[2]
+            queue_numbers[r[14]] = r[0]
     text  = "📋 ОЧЕРЕДЬ:\n\n"
     total = 0
     for g in order:
@@ -1094,9 +1101,10 @@ async def send_queue_notifications(context, rows):
     groups = get_today_groups(rows)
     group_tgid = {}
     for r in rows[1:]:
-        gid = r[10]
-        if r[8] == "ожидание" and gid not in group_tgid:
-            group_tgid[gid] = r[9]
+        if len(r) <= 14: continue
+        gid = r[14]
+        if r[10] == "ожидание" and gid not in group_tgid:
+            group_tgid[gid] = r[13]
     ahead = 0
     for gid in order:
         if ahead in (1, 2):
@@ -1130,12 +1138,12 @@ async def next_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Собираем ВСЕХ людей в группе с полными данными
     group_members = []  # (row_index, queue_number, name, tg_id, full_row)
     for i, r in enumerate(rows[1:], 2):
-        if len(r) > 10 and r[10] == gid:
+        if len(r) > 14 and r[14] == gid:
             try:
                 qn = int(r[0])
             except (ValueError, TypeError):
                 qn = 0
-            group_members.append((i, qn, r[2], r[9], r))
+            group_members.append((i, qn, r[2], r[13], r))
     # Сортируем по queue_number
     group_members.sort(key=lambda x: x[1])
     if not group_members:
@@ -1144,10 +1152,7 @@ async def next_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     main_row, queue_number, name, telegram_id, main_data = group_members[0]
     group_size = len(group_members)
     extra = group_size - 1
-    # Помечаем всех "вызван"
-    for row_idx, _, _, _, _ in group_members:
-        sheet.update_cell(row_idx, 9, "вызван")
-    # Определяем стол оператора, который вызывает
+    # Определяем стол оператора, который вызывает (нужно ДО записи в таблицу)
     operator_id = update.effective_user.id
     operator_window = None
     operator_name   = None
@@ -1161,6 +1166,11 @@ async def next_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 break
     except Exception as e:
         print(f"[NEXT] Не удалось определить стол оператора: {e}")
+    # Помечаем всех "вызван" + записываем имя оператора в колонку Сотрудник
+    for row_idx, _, _, _, _ in group_members:
+        sheet.update_cell(row_idx, 11, "вызван")  # колонка 11 = Статус
+        if operator_name:
+            sheet.update_cell(row_idx, 10, operator_name)  # колонка 10 = Сотрудник
     # Уведомление клиенту (если у него есть Telegram, т.е. TG_ID != 0)
     extra_text = f"\n👥 Вместе с вами: {extra} человек" if extra > 0 else ""
     table_text = f"\n🪟 Подойдите к столу №{operator_window}" if operator_window else ""
@@ -1177,14 +1187,14 @@ async def next_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"[NEXT] Клиент №{queue_number} без Telegram — голосовой вызов")
     # Уведомление оператору — с полной информацией о клиенте(ах)
     def format_person(row):
-        # row: № | Время | ФИО | Телефон | Оператор | ID | Банк | Счёт | Статус | TG_ID | GID | ...
+        # row: № | Дата | ФИО | ID | Телефон | Оператор | Счёт | Банк | Комм | Сотр | Статус | ...
         parts = []
         if len(row) > 2 and row[2]: parts.append(f"👤 {row[2]}")
-        if len(row) > 3 and row[3]: parts.append(f"📱 {row[3]}")
-        if len(row) > 4 and row[4]: parts.append(f"📞 {row[4]}")
-        if len(row) > 5 and row[5]: parts.append(f"🪪 {row[5]}")
-        if len(row) > 6 and row[6]: parts.append(f"🏦 {row[6]}")
-        if len(row) > 7 and row[7]: parts.append(f"💳 {row[7]}")
+        if len(row) > 3 and row[3] and row[3] != "—": parts.append(f"🪪 {row[3]}")
+        if len(row) > 4 and row[4] and row[4] != "—": parts.append(f"📱 {row[4]}")
+        if len(row) > 5 and row[5] and row[5] != "—": parts.append(f"📞 {row[5]}")
+        if len(row) > 7 and row[7] and row[7] != "—": parts.append(f"🏦 {row[7]}")
+        if len(row) > 6 and row[6] and row[6] != "—": parts.append(f"💳 {row[6]}")
         return "\n".join(parts)
     msg = f"➡️ Вызван №{queue_number}"
     if extra > 0:
@@ -1194,7 +1204,7 @@ async def next_client(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg += "\n\n" + format_person(main_data)
     if extra > 0:
         for idx, (_, _, _, _, row) in enumerate(group_members[1:], 2):
-            extra_tg = row[9] if len(row) > 9 else "0"
+            extra_tg = row[13] if len(row) > 13 else "0"
             extra_no_tg = str(extra_tg) in ("0", "", "—")
             label = " (без Telegram)" if extra_no_tg else ""
             msg += f"\n\n— {idx}-й человек{label} —\n" + format_person(row)
@@ -1295,11 +1305,25 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
             rows = sheet.get_all_values()
             today = datetime.now().strftime("%Y-%m-%d")
             today_rows = [r for r in rows[1:] if len(r) > 1 and r[1].startswith(today)]
-            served = sum(1 for r in today_rows if len(r) > 8 and r[8] == "обслужен")
-            waiting = sum(1 for r in today_rows if len(r) > 8 and r[8] == "ожидание")
+            # Колонка 11 (индекс 10) = Статус заявки, колонка 10 (индекс 9) = Сотрудник
+            served  = sum(1 for r in today_rows if len(r) > 10 and r[10] in ("вызван", "обслужен"))
+            waiting = sum(1 for r in today_rows if len(r) > 10 and r[10] == "ожидание")
             total_month = len([r for r in rows[1:] if len(r) > 1 and r[1][:7] == today[:7]])
             ops_sheet = gclient.open(SHEET_NAME).worksheet("Операторы")
             ops_count = len(ops_sheet.get_all_values()) - 1
+            # Подсчёт по операторам — за сегодня
+            today_by_op = {}
+            for r in today_rows:
+                if len(r) > 10 and r[10] in ("вызван", "обслужен"):
+                    op_name = r[9] if len(r) > 9 and r[9] else "(без имени)"
+                    today_by_op[op_name] = today_by_op.get(op_name, 0) + 1
+            # Подсчёт по операторам — за месяц
+            month_rows = [r for r in rows[1:] if len(r) > 10 and r[1][:7] == today[:7] and r[10] in ("вызван", "обслужен")]
+            month_by_op = {}
+            for r in month_rows:
+                op_name = r[9] if len(r) > 9 and r[9] else "(без имени)"
+                month_by_op[op_name] = month_by_op.get(op_name, 0) + 1
+            
             msg = (
                 f"📊 СТАТИСТИКА\n\n"
                 f"📅 Сегодня ({today}):\n"
@@ -1308,6 +1332,14 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📆 За месяц: {total_month}\n"
                 f"👥 Операторов: {ops_count}"
             )
+            if today_by_op:
+                msg += "\n\n👤 СЕГОДНЯ ПО СОТРУДНИКАМ:\n"
+                for op_name, n in sorted(today_by_op.items(), key=lambda x: -x[1]):
+                    msg += f"   • {op_name}: {n}\n"
+            if month_by_op:
+                msg += "\n📆 ЗА МЕСЯЦ ПО СОТРУДНИКАМ:\n"
+                for op_name, n in sorted(month_by_op.items(), key=lambda x: -x[1]):
+                    msg += f"   • {op_name}: {n}\n"
             await update.message.reply_text(msg, reply_markup=admin_menu_keyboard)
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка: {e}", reply_markup=admin_menu_keyboard)
@@ -1683,8 +1715,21 @@ async def manual_idnum(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     gid = f"M{queue_id}"  # M = manual
     sheet.append_row([
-        queue_id, now, name, "—", "—", formatted_id,
-        "—", "—", "ожидание", "0", gid, "", ""
+        queue_id,           # 1: №
+        now,                # 2: Дата
+        name,               # 3: ФИО
+        formatted_id,       # 4: ID
+        "—",                # 5: Телефон
+        "—",                # 6: Оператор
+        "—",                # 7: Счёт
+        "—",                # 8: Банк
+        "",                 # 9: Комментарий
+        "",                 # 10: Сотрудник
+        "ожидание",         # 11: Статус
+        "",                 # 12: Ссылка ID
+        "",                 # 13: Ссылка банк
+        "0",                # 14: TG_ID = 0 (без Telegram)
+        gid,                # 15: GID
     ])
     context.user_data.pop("manual_name", None)
     await update.message.reply_text(
@@ -1726,8 +1771,24 @@ app.add_handler(conv_handler)
 
 def init_sheets():
     """Инициализация Google Sheets при запуске."""
+    NEW_HEADERS = [
+        "№", "Дата", "ФИО", "ID", "Телефон", "Оператор",
+        "Номер счёта", "Банк", "Комментарий", "Сотрудник",
+        "Статус заявки", "Ссылка на ID", "Ссылка на банк книжку",
+        "TG_ID", "GID",
+    ]
     try:
         doc = gclient.open(SHEET_NAME)
+        # Проверяем заголовки основного листа очереди
+        try:
+            ws = doc.sheet1
+            first_row = ws.row_values(1)
+            if not first_row:
+                ws.update("A1", [NEW_HEADERS])
+                print("[INIT] Заголовки очереди созданы")
+        except Exception as e:
+            print(f"[INIT] Ошибка с заголовками: {e}")
+        # Проверяем лист "Операторы"
         try:
             doc.worksheet("Операторы")
         except:
