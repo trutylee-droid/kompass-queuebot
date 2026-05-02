@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>KOMPASS — Электронная очередь</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --kompass-blue: #1a3a8f;
+  --kompass-light: #4f9cf9;
+  --kompass-accent: #2e57c8;
+  --bg: #f5f8ff;
+  --bg-soft: #e8eeff;
+  --bg-card: #ffffff;
+  --border: #dde4f5;
+  --border-strong: #c8d4f0;
+  --text: #1a2040;
+  --text-soft: #5a6680;
+  --text-muted: #8a93b0;
+  --success: #1a6636;
+  --success-bg: #e8f9f0;
+  --error: #c00;
+  --error-bg: #ffeaea;
+  --warning-bg: #fff8e6;
+  --shadow: 0 2px 8px rgba(26, 58, 143, 0.08);
+  --shadow-strong: 0 8px 24px rgba(26, 58, 143, 0.15);
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  padding-bottom: 100px;
+}
+
+.app {
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--bg-card);
+  min-height: 100vh;
+  position: relative;
+}
+
+/* HEADER */
+.header {
+  background: linear-gradient(135deg, var(--kompass-blue) 0%, var(--kompass-accent) 100%);
+  color: white;
+  padding: 20px 24px 24px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+}
+.brand {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.brand-sub {
+  font-size: 13px;
+  opacity: 0.85;
+  font-weight: 500;
+}
+.header h1 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+.header p {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+/* PROGRESS */
+.progress {
+  display: flex;
+  gap: 4px;
+  margin-top: 14px;
+}
+.progress-bar {
+  flex: 1;
+  height: 4px;
+  background: rgba(255,255,255,0.25);
+  border-radius: 2px;
+  transition: background 0.3s;
+}
+.progress-bar.filled {
+  background: white;
+}
+
+/* FORM */
+.form {
+  padding: 24px;
+}
+
+/* SECTION */
+.section {
+  margin-bottom: 28px;
+  animation: fadeIn 0.4s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--kompass-blue);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title::before {
+  content: '';
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--kompass-blue);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+.section-1::before { content: '1'; }
+.section-2::before { content: '2'; }
+.section-3::before { content: '3'; }
+
+/* PHOTO UPLOAD */
+.photo-upload {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.photo-card {
+  position: relative;
+  background: var(--bg-soft);
+  border: 2px dashed var(--border-strong);
+  border-radius: 16px;
+  padding: 20px 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.photo-card:hover, .photo-card:active {
+  border-color: var(--kompass-light);
+  background: white;
+}
+.photo-card.uploaded {
+  background: var(--success-bg);
+  border: 2px solid var(--success);
+  border-style: solid;
+}
+.photo-card input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.photo-icon {
+  font-size: 32px;
+  line-height: 1;
+}
+.photo-card-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.photo-card-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.photo-status {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--success);
+  display: none;
+}
+.photo-card.uploaded .photo-status {
+  display: block;
+}
+.photo-card.uploaded .photo-icon::before {
+  content: '✓';
+}
+
+.scan-info {
+  background: linear-gradient(135deg, #fff8e6 0%, #fff4d4 100%);
+  border-left: 3px solid #ffa500;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #7a5500;
+  margin-top: 12px;
+  display: none;
+}
+.scan-info.visible {
+  display: block;
+}
+
+/* FIELDS */
+.field {
+  margin-bottom: 14px;
+}
+.field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+}
+.field input, .field select {
+  width: 100%;
+  font-family: inherit;
+  font-size: 16px;
+  padding: 14px 14px;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  background: white;
+  color: var(--text);
+  transition: all 0.15s;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.field input:focus, .field select:focus {
+  outline: none;
+  border-color: var(--kompass-light);
+  background: white;
+  box-shadow: 0 0 0 3px rgba(79, 156, 249, 0.15);
+}
+.field input::placeholder {
+  color: var(--text-muted);
+}
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.field-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.field-error {
+  font-size: 12px;
+  color: var(--error);
+  margin-top: 4px;
+  display: none;
+}
+.field.has-error input { border-color: var(--error); background: var(--error-bg); }
+.field.has-error .field-error { display: block; }
+
+/* CUSTOM SELECT (chips) */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chip {
+  flex: 1;
+  min-width: calc(33.333% - 6px);
+  background: var(--bg-soft);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chip:hover { background: white; border-color: var(--kompass-light); }
+.chip.selected {
+  background: var(--kompass-blue);
+  color: white;
+  border-color: var(--kompass-blue);
+}
+.chips-bank .chip { min-width: calc(50% - 4px); font-size: 12px; padding: 12px 6px; }
+.chips-bank .chip.full-width { min-width: 100%; }
+
+/* GROUP TOGGLE */
+.toggle-group {
+  background: var(--bg-soft);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.toggle-info {
+  flex: 1;
+}
+.toggle-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.toggle-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.toggle-switch {
+  position: relative;
+  width: 48px;
+  height: 28px;
+  background: var(--border-strong);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.toggle-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 24px;
+  height: 24px;
+  background: white;
+  border-radius: 50%;
+  transition: left 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+.toggle-switch.on {
+  background: var(--success);
+}
+.toggle-switch.on::after {
+  left: 22px;
+}
+
+/* EXTRA PERSON */
+.extra-person {
+  background: var(--bg-soft);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 14px;
+  border: 1.5px solid var(--border);
+}
+.extra-person-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.extra-person-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--kompass-blue);
+}
+.btn-remove {
+  background: none;
+  border: none;
+  color: var(--error);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.btn-add {
+  width: 100%;
+  background: white;
+  border: 1.5px dashed var(--kompass-light);
+  border-radius: 12px;
+  padding: 14px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--kompass-accent);
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: 14px;
+}
+.btn-add:hover { background: var(--bg-soft); }
+
+/* SUBMIT BUTTON */
+.submit-bar {
+  position: fixed;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 480px;
+  padding: 16px 20px 20px;
+  background: linear-gradient(180deg, transparent 0%, white 30%);
+  z-index: 20;
+}
+.btn-submit {
+  width: 100%;
+  background: var(--kompass-blue);
+  color: white;
+  border: none;
+  border-radius: 14px;
+  padding: 16px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+  box-shadow: var(--shadow-strong);
+  letter-spacing: 0.3px;
+}
+.btn-submit:active {
+  transform: scale(0.98);
+}
+.btn-submit:disabled {
+  background: var(--border-strong);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* SUCCESS SCREEN */
+.success-screen {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: white;
+  z-index: 100;
+  padding: 24px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.success-screen.visible {
+  display: flex;
+  animation: fadeIn 0.4s ease-out;
+}
+.success-icon {
+  width: 80px;
+  height: 80px;
+  background: var(--success-bg);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40px;
+  color: var(--success);
+  margin-bottom: 24px;
+  animation: pop 0.5s cubic-bezier(.5,1.5,.5,1);
+}
+@keyframes pop {
+  0% { transform: scale(0); }
+  100% { transform: scale(1); }
+}
+.success-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--kompass-blue);
+  margin-bottom: 8px;
+}
+.success-number {
+  font-size: 64px;
+  font-weight: 900;
+  color: var(--kompass-accent);
+  line-height: 1;
+  margin: 16px 0;
+  font-feature-settings: "tnum";
+}
+.success-text {
+  color: var(--text-soft);
+  font-size: 14px;
+  margin-bottom: 20px;
+  max-width: 320px;
+}
+.success-info {
+  background: var(--bg-soft);
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-size: 13px;
+  color: var(--text);
+  margin-bottom: 20px;
+}
+
+/* DEMO BANNER */
+.demo-banner {
+  background: linear-gradient(90deg, #ff9500, #ff5e3a);
+  color: white;
+  text-align: center;
+  padding: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="demo-banner">⚠ ДЕМО · показано как будет выглядеть в реальности</div>
+  
+  <div class="header">
+    <div class="brand">KOMPASS</div>
+    <div class="brand-sub">Инчхон офис</div>
+    <h1>Электронная очередь</h1>
+    <p>Заполните форму чтобы получить номер очереди</p>
+    <div class="progress">
+      <div class="progress-bar" id="p1"></div>
+      <div class="progress-bar" id="p2"></div>
+      <div class="progress-bar" id="p3"></div>
+    </div>
+  </div>
+
+  <form class="form" id="mainForm" onsubmit="handleSubmit(event)">
+    
+    <!-- 1. Документы -->
+    <div class="section">
+      <div class="section-title section-1">Документы</div>
+      <div class="photo-upload">
+        <label class="photo-card" id="idCard">
+          <input type="file" accept="image/*" capture="environment" onchange="onPhoto(event, 'id')">
+          <div class="photo-icon">📷</div>
+          <div class="photo-card-label">ID карта</div>
+          <div class="photo-card-hint">Сделать фото</div>
+          <div class="photo-status">Загружено</div>
+        </label>
+        <label class="photo-card" id="bankCard">
+          <input type="file" accept="image/*" capture="environment" onchange="onPhoto(event, 'bank')">
+          <div class="photo-icon">📷</div>
+          <div class="photo-card-label">Банковская книжка</div>
+          <div class="photo-card-hint">Сделать фото</div>
+          <div class="photo-status">Загружено</div>
+        </label>
+      </div>
+      <div class="scan-info" id="scanInfo">
+        ⚙️ Распознаю документы — данные ниже заполнятся автоматически
+      </div>
+    </div>
+
+    <!-- 2. Личные данные -->
+    <div class="section">
+      <div class="section-title section-2">Ваши данные</div>
+      
+      <div class="field">
+        <label for="name">ФИО (как в ID)</label>
+        <input type="text" id="name" placeholder="KIM MINJUN" autocomplete="name">
+        <div class="field-hint">Только латиница</div>
+      </div>
+      
+      <div class="field">
+        <label for="idnum">ID номер</label>
+        <input type="text" id="idnum" placeholder="901231-1234567" inputmode="numeric">
+      </div>
+      
+      <div class="field">
+        <label for="phone">Телефон</label>
+        <input type="tel" id="phone" placeholder="010-1234-5678" inputmode="numeric" autocomplete="tel">
+      </div>
+      
+      <div class="field">
+        <label>Оператор связи</label>
+        <div class="chips" id="operatorChips">
+          <div class="chip" onclick="selectChip(this, 'operator')">SKT</div>
+          <div class="chip" onclick="selectChip(this, 'operator')">KT</div>
+          <div class="chip" onclick="selectChip(this, 'operator')">LG U+</div>
+          <div class="chip" onclick="selectChip(this, 'operator')">SKT KADAFON</div>
+          <div class="chip" onclick="selectChip(this, 'operator')">KT KADAFON</div>
+          <div class="chip" onclick="selectChip(this, 'operator')">LG KADAFON</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Банк -->
+    <div class="section">
+      <div class="section-title section-3">Банк</div>
+      
+      <div class="field">
+        <label>Выберите банк</label>
+        <div class="chips chips-bank" id="bankChips">
+          <div class="chip" onclick="selectChip(this, 'bank')">기업은행 · Айбикей</div>
+          <div class="chip" onclick="selectChip(this, 'bank')">국민은행 · Кукмин</div>
+          <div class="chip" onclick="selectChip(this, 'bank')">우리은행 · Урибанк</div>
+          <div class="chip" onclick="selectChip(this, 'bank')">신한은행 · Шинхан</div>
+          <div class="chip" onclick="selectChip(this, 'bank')">하나은행 · Хана</div>
+          <div class="chip" onclick="selectChip(this, 'bank')">농협은행 · Нонхеп</div>
+          <div class="chip full-width" onclick="selectChip(this, 'bank')">ДРУГОЙ</div>
+        </div>
+      </div>
+      
+      <div class="field">
+        <label for="account">Номер счёта</label>
+        <input type="text" id="account" placeholder="48891048635707" inputmode="numeric">
+      </div>
+    </div>
+
+    <!-- Дополнительные люди -->
+    <div class="section">
+      <div class="section-title section-3" style="margin-bottom:10px;">Дополнительно</div>
+      <div id="extraPersons"></div>
+      <button type="button" class="btn-add" onclick="addExtraPerson()">
+        + Добавить ещё человека (например, родственника)
+      </button>
+    </div>
+    
+  </form>
+
+  <div class="submit-bar">
+    <button type="submit" form="mainForm" class="btn-submit" id="submitBtn">
+      Встать в очередь
+    </button>
+  </div>
+
+  <!-- Success screen -->
+  <div class="success-screen" id="successScreen">
+    <div class="success-icon">✓</div>
+    <div class="success-title">Вы в очереди!</div>
+    <div class="success-text">Ваш номер</div>
+    <div class="success-number" id="queueNumber">7</div>
+    <div class="success-info" id="queueInfo">Перед вами: 3 человека</div>
+    <div class="success-text" style="font-size:13px; max-width:280px;">
+      Ожидайте уведомление в Telegram когда подойдёт ваша очередь
+    </div>
+    <button class="btn-submit" style="max-width:200px; margin-top:20px;" onclick="closeApp()">Закрыть</button>
+  </div>
+
+</div>
+
+<script>
+let selectedOperator = null;
+let selectedBank = null;
+let extraPersonCount = 0;
+
+function selectChip(el, group) {
+  const chips = el.parentElement.querySelectorAll('.chip');
+  chips.forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
+  if (group === 'operator') selectedOperator = el.textContent;
+  if (group === 'bank') selectedBank = el.textContent;
+  updateProgress();
+}
+
+function onPhoto(event, type) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const card = type === 'id' ? document.getElementById('idCard') : document.getElementById('bankCard');
+  card.classList.add('uploaded');
+  card.querySelector('.photo-card-hint').textContent = file.name.slice(0, 20);
+  
+  // Симулируем распознавание
+  const scanInfo = document.getElementById('scanInfo');
+  scanInfo.classList.add('visible');
+  scanInfo.textContent = '⚙️ Распознаю документ...';
+  
+  setTimeout(() => {
+    if (type === 'id') {
+      document.getElementById('name').value = 'KIM IVAN';
+      document.getElementById('idnum').value = '901231-1234567';
+      scanInfo.textContent = '✓ ID распознан — проверьте данные ниже';
+    } else {
+      document.getElementById('account').value = '48891048635707';
+      // Выбираем Кукмин автоматически
+      const bankChips = document.querySelectorAll('#bankChips .chip');
+      bankChips.forEach(c => {
+        if (c.textContent.includes('Кукмин')) {
+          c.click();
+        }
+      });
+      scanInfo.textContent = '✓ Банковская книжка распознана';
+    }
+    setTimeout(() => scanInfo.classList.remove('visible'), 3000);
+    updateProgress();
+  }, 1200);
+}
+
+function updateProgress() {
+  const id = document.getElementById('idCard').classList.contains('uploaded');
+  const bank = document.getElementById('bankCard').classList.contains('uploaded');
+  const name = document.getElementById('name').value.trim();
+  const phone = document.getElementById('phone').value.trim();
+  const account = document.getElementById('account').value.trim();
+  
+  document.getElementById('p1').classList.toggle('filled', id || bank);
+  document.getElementById('p2').classList.toggle('filled', name && phone && selectedOperator);
+  document.getElementById('p3').classList.toggle('filled', selectedBank && account);
+}
+
+['name','idnum','phone','account'].forEach(id => {
+  document.getElementById(id).addEventListener('input', updateProgress);
+});
+
+// Phone formatter
+document.getElementById('phone').addEventListener('input', (e) => {
+  let v = e.target.value.replace(/\D/g, '').slice(0, 11);
+  if (v.length > 7) v = v.slice(0,3) + '-' + v.slice(3,7) + '-' + v.slice(7);
+  else if (v.length > 3) v = v.slice(0,3) + '-' + v.slice(3);
+  e.target.value = v;
+});
+
+// ID formatter
+document.getElementById('idnum').addEventListener('input', (e) => {
+  let v = e.target.value.replace(/\D/g, '').slice(0, 13);
+  if (v.length > 6) v = v.slice(0,6) + '-' + v.slice(6);
+  e.target.value = v;
+});
+
+function addExtraPerson() {
+  extraPersonCount++;
+  const html = `
+    <div class="extra-person" id="extra${extraPersonCount}">
+      <div class="extra-person-header">
+        <div class="extra-person-title">Дополнительный человек ${extraPersonCount}</div>
+        <button type="button" class="btn-remove" onclick="removeExtra(${extraPersonCount})">Удалить</button>
+      </div>
+      <div class="field">
+        <label>ФИО</label>
+        <input type="text" placeholder="LEE SUNG" />
+      </div>
+      <div class="field">
+        <label>ID номер</label>
+        <input type="text" placeholder="901231-1234567" inputmode="numeric" />
+      </div>
+    </div>
+  `;
+  document.getElementById('extraPersons').insertAdjacentHTML('beforeend', html);
+}
+
+function removeExtra(n) {
+  document.getElementById('extra' + n).remove();
+}
+
+function handleSubmit(e) {
+  e.preventDefault();
+  const num = Math.floor(Math.random() * 12) + 1;
+  document.getElementById('queueNumber').textContent = num;
+  document.getElementById('queueInfo').textContent = num > 1 ? `Перед вами: ${num-1} человек` : 'Вы первый!';
+  document.getElementById('successScreen').classList.add('visible');
+}
+
+function closeApp() {
+  document.getElementById('successScreen').classList.remove('visible');
+}
+</script>
+
+</body>
+</html>
