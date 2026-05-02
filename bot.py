@@ -1,6 +1,6 @@
 import sys, os
 sys.path.insert(0, os.getcwd())  # Загружать config.py из текущей папки (для мульти-офисного режима)
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton, KeyboardButton, WebAppInfo
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     filters, ConversationHandler, ContextTypes, CallbackQueryHandler
@@ -11,7 +11,8 @@ from datetime import datetime
 import uuid, re, base64, json, httpx
 
 # ========= CONFIG =========
-VERSION = "2.7.0 | 2026-04-27"
+VERSION = "2.8.0 | 2026-05-02"
+WEBAPP_URL = "https://trutylee-droid.github.io/kompass-queuebot/webapp/"
 from config import TOKEN, OPENAI_API_KEY, ADMINS, PHOTOS_CHANNEL_ID, SHEET_NAME
 
 scope = [
@@ -41,7 +42,11 @@ sheet   = gclient.open(SHEET_NAME).sheet1
 
 # ========= KEYBOARDS =========
 main_keyboard = ReplyKeyboardMarkup(
-    [["📋 Встать в очередь"], ["📊 Проверить очередь"]],
+    [
+        [KeyboardButton("🆕 Быстрая запись", web_app=WebAppInfo(url=WEBAPP_URL))],
+        ["📋 Встать в очередь"],
+        ["📊 Проверить очередь"],
+    ],
     resize_keyboard=True,
 )
 add_more_keyboard = ReplyKeyboardMarkup(
@@ -1745,8 +1750,124 @@ async def manual_idnum(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def version_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🤖 KOMPASS QueueBot\nВерсия: {VERSION}")
 
+# ========= WEBAPP HANDLER =========
+
+async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Принимает данные от Telegram WebApp (форма быстрой записи)."""
+    user_id = update.effective_user.id
+    raw = update.message.web_app_data.data
+    print(f"[WEBAPP] Данные от {user_id}: {raw[:120]}")
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        await update.message.reply_text("❌ Ошибка формата данных", reply_markup=main_keyboard)
+        return
+
+    # Проверка обязательных полей
+    required = ["name", "idnum", "phone", "operator", "bank", "account"]
+    for f in required:
+        if not data.get(f):
+            await update.message.reply_text(f"❌ Не заполнено поле: {f}", reply_markup=main_keyboard)
+            return
+
+    rows = sheet.get_all_values()
+
+    # Проверка: уже в очереди?
+    if user_already_in_queue(user_id, rows):
+        await update.message.reply_text(
+            "Вы уже стоите в очереди!\n\n"
+            "📊 Нажмите «Проверить очередь» чтобы узнать вашу позицию.",
+            reply_markup=main_keyboard,
+        )
+        return
+
+    # Нормализация
+    name    = data["name"].strip().upper()
+    phone   = data["phone"].strip()
+    operator = data["operator"].strip()
+    bank    = data["bank"].strip()
+    account = re.sub(r"[^0-9]", "", data["account"])
+
+    # Форматируем ID
+    idnum_digits = re.sub(r"[^0-9]", "", data["idnum"])
+    if len(idnum_digits) == 13:
+        idnum = f"{idnum_digits[:6]}-{idnum_digits[6:]}"
+    else:
+        idnum = data["idnum"].strip()
+
+    # Проверка дубликата по ID
+    if is_duplicate_id(idnum, rows):
+        await update.message.reply_text(
+            "❌ Этот ID уже зарегистрирован в очереди\n\n"
+            "📊 Если вы уже записаны — нажмите «Проверить очередь».",
+            reply_markup=main_keyboard,
+        )
+        return
+
+    await update.message.reply_text("⏳ Сохраняю данные...")
+
+    group_id = str(uuid.uuid4())[:8]
+    now      = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    rows     = sheet.get_all_values()
+    queue_id = get_next_id(rows)
+
+    # Основной человек
+    persons = [{
+        "name": name, "idnum": idnum,
+        "phone": phone, "operator": operator,
+        "bank": bank, "account": account,
+    }]
+
+    # Дополнительные люди
+    for extra in data.get("extras", []):
+        ex_name  = extra.get("name", "").strip().upper()
+        ex_digits = re.sub(r"[^0-9]", "", extra.get("idnum", ""))
+        ex_idnum = f"{ex_digits[:6]}-{ex_digits[6:]}" if len(ex_digits) == 13 else extra.get("idnum", "").strip()
+        if ex_name and ex_idnum:
+            persons.append({
+                "name": ex_name, "idnum": ex_idnum,
+                "phone": phone, "operator": operator,
+                "bank": bank, "account": account,
+            })
+
+    for p in persons:
+        sheet.append_row([
+            queue_id,       # 1: №
+            now,            # 2: Дата
+            p["name"],      # 3: ФИО
+            p["idnum"],     # 4: ID
+            p["phone"],     # 5: Телефон
+            p["operator"],  # 6: Оператор
+            p["account"],   # 7: Номер счёта
+            p["bank"],      # 8: Банк
+            "",             # 9: Комментарий
+            "",             # 10: Сотрудник
+            "ожидание",     # 11: Статус заявки
+            "",             # 12: Ссылка на ID
+            "",             # 13: Ссылка на банк
+            str(user_id),   # 14: TG_ID
+            group_id,       # 15: GID
+        ])
+
+    # Позиция в очереди
+    updated_rows = sheet.get_all_values()
+    order  = get_order(updated_rows)
+    groups = get_today_groups(updated_rows)
+    ahead  = sum(groups.get(g, 0) for g in order[:order.index(group_id)] if group_id in order)
+
+    extra_info = f"\n👥 Группа: {len(persons)} чел." if len(persons) > 1 else ""
+    await update.message.reply_text(
+        f"✅ Вы записаны в очередь!\n"
+        f"📍 Ваш номер: {queue_id}\n"
+        f"👥 Перед вами: {ahead} человек{extra_info}",
+        reply_markup=main_keyboard,
+    )
+    print(f"[WEBAPP] ✅ Записан #{queue_id}: {name}")
+
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("version", version_cmd))
+app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, handle_webapp_data))
 app.add_handler(MessageHandler(filters.Regex("^📊 Проверить очередь$"), check_queue))
 app.add_handler(MessageHandler(filters.Regex("^📋 Вся очередь$"), show_queue))
 app.add_handler(MessageHandler(filters.Regex("^➡️ Следующий$"), next_client))
