@@ -12,8 +12,22 @@ import uuid, re, base64, json, httpx
 from aiohttp import web
 
 # ========= CONFIG =========
-VERSION = "2.8.0 | 2026-05-02"
+VERSION = "2.8.1 | 2026-05-03"
 WEBAPP_URL = "https://trutylee-droid.github.io/kompass-queuebot/webapp/"
+
+# OCR endpoint URL (читается из файла который обновляет tunnel скрипт)
+def get_ocr_url():
+    try:
+        with open("/root/tunnel_url.txt") as f:
+            url = f.read().strip()
+            if url.startswith("https://"):
+                return url + "/ocr"
+    except Exception:
+        pass
+    return None
+
+OCR_URL = get_ocr_url()
+print(f"[OCR] URL: {OCR_URL}")
 from config import TOKEN, OPENAI_API_KEY, ADMINS, PHOTOS_CHANNEL_ID, SHEET_NAME
 
 scope = [
@@ -42,9 +56,16 @@ sheet   = gclient.open(SHEET_NAME).sheet1
 ) = range(38)
 
 # ========= KEYBOARDS =========
+def get_webapp_url():
+    ocr = get_ocr_url()
+    if ocr:
+        from urllib.parse import quote
+        return WEBAPP_URL + "?ocr=" + quote(ocr, safe="")
+    return WEBAPP_URL
+
 main_keyboard = ReplyKeyboardMarkup(
     [
-        [KeyboardButton("🆕 Быстрая запись", web_app=WebAppInfo(url=WEBAPP_URL))],
+        [KeyboardButton("🆕 Быстрая запись", web_app=WebAppInfo(url=get_webapp_url()))],
         ["📋 Встать в очередь"],
         ["📊 Проверить очередь"],
     ],
