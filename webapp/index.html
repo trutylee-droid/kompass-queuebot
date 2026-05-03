@@ -159,17 +159,46 @@ body {
   background: #e8eeff !important;
   border: 2px dashed #c8d4f0;
   border-radius: 16px;
-  padding: 20px 12px;
+  padding: 22px 12px;
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
-  min-height: 140px;
+  min-height: 160px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 8px;
   color: #1a2040 !important;
+}
+.photo-card:hover, .photo-card:active {
+  border-color: var(--kompass-light);
+  background: white;
+}
+.photo-card.uploaded {
+  background: var(--success-bg);
+  border: 2px solid var(--success);
+  border-style: solid;
+}
+.photo-card input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.photo-icon {
+  font-size: 34px;
+  line-height: 1;
+}
+.photo-card-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.photo-card-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 .photo-card:hover, .photo-card:active {
   border-color: var(--kompass-light);
@@ -550,29 +579,19 @@ body {
       <div class="section-title section-1">Документы</div>
       <div class="photo-upload">
         <label class="photo-card" id="idCard">
-          <input type="file" accept="image/*" capture="environment" onchange="onPhoto(event, 'id')" id="idCamera">
+          <input type="file" accept="image/*" onchange="onPhoto(event, 'id')">
           <div class="photo-icon">📷</div>
           <div class="photo-card-label">ID карта</div>
-          <div class="photo-card-hint">Сделать фото</div>
+          <div class="photo-card-hint">Сделать фото или загрузить с телефона</div>
           <div class="photo-status">Загружено</div>
         </label>
         <label class="photo-card" id="bankCard">
-          <input type="file" accept="image/*" capture="environment" onchange="onPhoto(event, 'bank')" id="bankCamera">
+          <input type="file" accept="image/*" onchange="onPhoto(event, 'bank')">
           <div class="photo-icon">📷</div>
           <div class="photo-card-label">Банковская книжка</div>
-          <div class="photo-card-hint">Сделать фото</div>
+          <div class="photo-card-hint">Сделать фото или загрузить с телефона</div>
           <div class="photo-status">Загружено</div>
         </label>
-      </div>
-      <div style="display:flex; gap:8px; margin-top:8px;">
-        <button type="button" class="btn-gallery" onclick="document.getElementById('idGallery').click()">
-          🖼 Из галереи · ID
-        </button>
-        <input type="file" accept="image/*" id="idGallery" style="display:none" onchange="onPhoto(event, 'id')">
-        <button type="button" class="btn-gallery" onclick="document.getElementById('bankGallery').click()">
-          🖼 Из галереи · Книжка
-        </button>
-        <input type="file" accept="image/*" id="bankGallery" style="display:none" onchange="onPhoto(event, 'bank')">
       </div>
       <div class="scan-info" id="scanInfo">
         ⚙️ Фото загружено — заполните данные ниже
