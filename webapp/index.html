@@ -60,31 +60,31 @@ body {
 .header {
   background: linear-gradient(135deg, var(--kompass-blue) 0%, var(--kompass-accent) 100%);
   color: white;
-  padding: 20px 24px 24px;
+  padding: 12px 20px 14px;
   position: sticky;
   top: 0;
   z-index: 10;
   box-shadow: 0 2px 12px rgba(0,0,0,0.1);
 }
 .brand {
-  font-size: 22px;
+  font-size: 17px;
   font-weight: 800;
   letter-spacing: 0.5px;
-  margin-bottom: 4px;
+  margin-bottom: 1px;
 }
 .brand-sub {
-  font-size: 13px;
+  font-size: 11px;
   opacity: 0.85;
   font-weight: 500;
 }
 .header h1 {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 600;
-  margin-top: 14px;
-  margin-bottom: 6px;
+  margin-top: 8px;
+  margin-bottom: 2px;
 }
 .header p {
-  font-size: 13px;
+  font-size: 11px;
   opacity: 0.85;
 }
 
@@ -92,7 +92,7 @@ body {
 .progress {
   display: flex;
   gap: 4px;
-  margin-top: 14px;
+  margin-top: 8px;
 }
 .progress-bar {
   flex: 1;
@@ -410,6 +410,22 @@ body {
 }
 .btn-add:hover { background: var(--bg-soft); }
 
+.btn-gallery {
+  flex: 1;
+  background: white;
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+.btn-gallery:active { background: var(--bg-soft); border-color: var(--kompass-light); }
+
 /* SUBMIT BUTTON */
 .submit-bar {
   position: fixed;
@@ -534,19 +550,29 @@ body {
       <div class="section-title section-1">Документы</div>
       <div class="photo-upload">
         <label class="photo-card" id="idCard">
-          <input type="file" accept="image/*" capture="environment" onchange="onPhoto(event, 'id')">
+          <input type="file" accept="image/*" capture="environment" onchange="onPhoto(event, 'id')" id="idCamera">
           <div class="photo-icon">📷</div>
           <div class="photo-card-label">ID карта</div>
           <div class="photo-card-hint">Сделать фото</div>
           <div class="photo-status">Загружено</div>
         </label>
         <label class="photo-card" id="bankCard">
-          <input type="file" accept="image/*" capture="environment" onchange="onPhoto(event, 'bank')">
+          <input type="file" accept="image/*" capture="environment" onchange="onPhoto(event, 'bank')" id="bankCamera">
           <div class="photo-icon">📷</div>
           <div class="photo-card-label">Банковская книжка</div>
           <div class="photo-card-hint">Сделать фото</div>
           <div class="photo-status">Загружено</div>
         </label>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button type="button" class="btn-gallery" onclick="document.getElementById('idGallery').click()">
+          🖼 Из галереи · ID
+        </button>
+        <input type="file" accept="image/*" id="idGallery" style="display:none" onchange="onPhoto(event, 'id')">
+        <button type="button" class="btn-gallery" onclick="document.getElementById('bankGallery').click()">
+          🖼 Из галереи · Книжка
+        </button>
+        <input type="file" accept="image/*" id="bankGallery" style="display:none" onchange="onPhoto(event, 'bank')">
       </div>
       <div class="scan-info" id="scanInfo">
         ⚙️ Фото загружено — заполните данные ниже
@@ -657,11 +683,6 @@ if (tg) {
   tg.setHeaderColor('#1a3a8f');
 }
 
-// OCR URL из параметра
-const urlParams = new URLSearchParams(window.location.search);
-const OCR_URL = urlParams.get('ocr') || null;
-console.log('[OCR] URL:', OCR_URL);
-
 // ─── Состояние формы ──────────────────────────────────────────
 let selectedOperator = null;
 let selectedBank = null;
@@ -684,50 +705,19 @@ function selectChip(el, group) {
 }
 
 // ─── Фото ─────────────────────────────────────────────────────
-async function onPhoto(event, type) {
+function onPhoto(event, type) {
   const file = event.target.files[0];
   if (!file) return;
   const card = type === 'id' ? document.getElementById('idCard') : document.getElementById('bankCard');
   card.classList.add('uploaded');
-  card.querySelector('.photo-card-hint').textContent = '⏳ Сканирую...';
-
-  // OCR если есть URL
-  if (OCR_URL) {
-    try {
-      const formData = new FormData();
-      formData.append('photo', file);
-      const resp = await fetch(OCR_URL + '?type=' + type, {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await resp.json();
-      console.log('[OCR result]', data);
-
-      if (type === 'id') {
-        if (data.name)  { document.getElementById('name').value  = data.name;  document.getElementById('fieldName').classList.remove('has-error'); }
-        if (data.idnum) { document.getElementById('idnum').value = data.idnum; document.getElementById('fieldIdnum').classList.remove('has-error'); }
-      } else {
-        if (data.bank) {
-          const chips = document.querySelectorAll('#bankChips .chip');
-          chips.forEach(c => { if (c.textContent.trim() === data.bank.trim()) { selectChip(c, 'bank'); } });
-        }
-        if (data.account) { document.getElementById('account').value = data.account; document.getElementById('fieldAccount').classList.remove('has-error'); }
-      }
-      card.querySelector('.photo-card-hint').textContent = '✅ Данные заполнены';
-    } catch (err) {
-      console.error('[OCR error]', err);
-      card.querySelector('.photo-card-hint').textContent = file.name.slice(0, 20);
-    }
-  } else {
-    card.querySelector('.photo-card-hint').textContent = file.name.slice(0, 20);
-  }
+  card.querySelector('.photo-card-hint').textContent = file.name.slice(0, 20);
 
   const scanInfo = document.getElementById('scanInfo');
   scanInfo.classList.add('visible');
   scanInfo.textContent = type === 'id'
-    ? '📷 ID загружен — проверьте данные'
-    : '📷 Банковская книжка загружена — проверьте данные';
-  setTimeout(() => scanInfo.classList.remove('visible'), 4000);
+    ? '📷 ID загружен — заполните данные вручную'
+    : '📷 Банковская книжка загружена — заполните данные вручную';
+  setTimeout(() => scanInfo.classList.remove('visible'), 3000);
   updateProgress();
 }
 
