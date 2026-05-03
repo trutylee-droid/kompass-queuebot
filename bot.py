@@ -1853,6 +1853,9 @@ async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 "bank": bank, "account": account,
             })
 
+    photo_id   = data.get("photo_id", "")
+    photo_bank = data.get("photo_bank", "")
+
     for p in persons:
         sheet.append_row([
             queue_id,       # 1: №
@@ -1866,8 +1869,8 @@ async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "",             # 9: Комментарий
             "",             # 10: Сотрудник
             "ожидание",     # 11: Статус заявки
-            "",             # 12: Ссылка на ID
-            "",             # 13: Ссылка на банк
+            photo_id,       # 12: Ссылка на ID
+            photo_bank,     # 13: Ссылка на банк
             str(user_id),   # 14: TG_ID
             group_id,       # 15: GID
         ])
@@ -1944,6 +1947,43 @@ def init_sheets():
 if __name__ == "__main__":
     import asyncio
 
+    async def upload_handler(request):
+        """Загрузка фото в Telegram канал."""
+        try:
+            reader = await request.multipart()
+            field = await reader.next()
+            doc_type = request.rel_url.query.get("type", "id")
+            queue_id = request.rel_url.query.get("queue_id", "")
+            photo_bytes = await field.read()
+
+            caption = f"📎 {'ID карта' if doc_type == 'id' else 'Банковская книжка'}"
+            if queue_id:
+                caption += f" · Очередь #{queue_id}"
+
+            # Отправляем фото в канал
+            msg = await app.bot.send_photo(
+                chat_id=PHOTOS_CHANNEL_ID,
+                photo=photo_bytes,
+                caption=caption,
+            )
+            file_id = msg.photo[-1].file_id
+            link = f"https://t.me/c/{str(PHOTOS_CHANNEL_ID).replace('-100', '')}/{msg.message_id}"
+            print(f"[UPLOAD] {doc_type} → {link}")
+
+            return web.Response(
+                text=json.dumps({"ok": True, "file_id": file_id, "link": link}, ensure_ascii=False),
+                content_type="application/json",
+                headers={"Access-Control-Allow-Origin": "*"},
+            )
+        except Exception as e:
+            print(f"[UPLOAD ERROR] {e}")
+            return web.Response(
+                text=json.dumps({"error": str(e)}),
+                content_type="application/json",
+                status=500,
+                headers={"Access-Control-Allow-Origin": "*"},
+            )
+
     async def ocr_handler(request):
         """OCR эндпоинт для WebApp."""
         try:
@@ -1986,7 +2026,9 @@ if __name__ == "__main__":
         # OCR HTTP сервер
         ocr_app = web.Application(client_max_size=20 * 1024 * 1024)
         ocr_app.router.add_post("/ocr", ocr_handler)
+        ocr_app.router.add_post("/upload", upload_handler)
         ocr_app.router.add_route("OPTIONS", "/ocr", ocr_options)
+        ocr_app.router.add_route("OPTIONS", "/upload", ocr_options)
         runner = web.AppRunner(ocr_app)
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", 8080)
