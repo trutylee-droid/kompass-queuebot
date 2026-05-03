@@ -1843,14 +1843,18 @@ async def handle_webapp_data(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # Дополнительные люди
     for extra in data.get("extras", []):
-        ex_name  = extra.get("name", "").strip().upper()
+        ex_name   = extra.get("name", "").strip().upper()
         ex_digits = re.sub(r"[^0-9]", "", extra.get("idnum", ""))
-        ex_idnum = f"{ex_digits[:6]}-{ex_digits[6:]}" if len(ex_digits) == 13 else extra.get("idnum", "").strip()
+        ex_idnum  = f"{ex_digits[:6]}-{ex_digits[6:]}" if len(ex_digits) == 13 else extra.get("idnum", "").strip()
+        ex_phone   = extra.get("phone", "").strip() or phone
+        ex_operator = extra.get("operator", "").strip() or operator
+        ex_bank    = extra.get("bank", "").strip() or bank
+        ex_account = re.sub(r"[^0-9]", "", extra.get("account", "")) or account
         if ex_name and ex_idnum:
             persons.append({
                 "name": ex_name, "idnum": ex_idnum,
-                "phone": phone, "operator": operator,
-                "bank": bank, "account": account,
+                "phone": ex_phone, "operator": ex_operator,
+                "bank": ex_bank, "account": ex_account,
             })
 
     photo_id   = data.get("photo_id", "")
@@ -1965,6 +1969,9 @@ if __name__ == "__main__":
                 chat_id=PHOTOS_CHANNEL_ID,
                 photo=photo_bytes,
                 caption=caption,
+                read_timeout=60,
+                write_timeout=60,
+                connect_timeout=30,
             )
             file_id = msg.photo[-1].file_id
             link = f"https://t.me/c/{str(PHOTOS_CHANNEL_ID).replace('-100', '')}/{msg.message_id}"
