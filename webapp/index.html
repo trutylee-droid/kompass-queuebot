@@ -702,10 +702,17 @@ if (tg) {
   tg.setHeaderColor('#1a3a8f');
 }
 
+// ─── OCR URL из параметра ─────────────────────────────────────
+const urlParams = new URLSearchParams(window.location.search);
+const OCR_URL = urlParams.get('ocr') || null;
+const BASE_URL = OCR_URL ? OCR_URL.replace('/ocr', '') : null;
+console.log('[OCR] URL:', OCR_URL);
+
 // ─── Состояние формы ──────────────────────────────────────────
 let selectedOperator = null;
 let selectedBank = null;
 let extraPersonCount = 0;
+let photoLinks = { id: null, bank: null };
 
 // ─── Chips ────────────────────────────────────────────────────
 function selectChip(el, group) {
@@ -724,19 +731,55 @@ function selectChip(el, group) {
 }
 
 // ─── Фото ─────────────────────────────────────────────────────
-function onPhoto(event, type) {
+async function onPhoto(event, type) {
   const file = event.target.files[0];
   if (!file) return;
   const card = type === 'id' ? document.getElementById('idCard') : document.getElementById('bankCard');
   card.classList.add('uploaded');
-  card.querySelector('.photo-card-hint').textContent = file.name.slice(0, 20);
+  card.querySelector('.photo-card-hint').textContent = '⏳ Обрабатываю...';
+
+  if (BASE_URL) {
+    try {
+      // OCR
+      const fd1 = new FormData(); fd1.append('photo', file);
+      const ocrResp = fetch(BASE_URL + '/ocr?type=' + type, { method: 'POST', body: fd1 }).then(r => r.json()).catch(() => null);
+
+      // Загрузка фото в канал
+      const fd2 = new FormData(); fd2.append('photo', file);
+      const uploadResp = fetch(BASE_URL + '/upload?type=' + type, { method: 'POST', body: fd2 })
+        .then(r => r.json())
+        .then(d => { if (d.link) photoLinks[type] = d.link; return d; })
+        .catch(() => null);
+
+      const [ocrData] = await Promise.all([ocrResp, uploadResp]);
+
+      if (ocrData && !ocrData.error) {
+        if (type === 'id') {
+          if (ocrData.name)  { document.getElementById('name').value  = ocrData.name;  document.getElementById('fieldName').classList.remove('has-error'); }
+          if (ocrData.idnum) { document.getElementById('idnum').value = ocrData.idnum; document.getElementById('fieldIdnum').classList.remove('has-error'); }
+        } else {
+          if (ocrData.bank) {
+            document.querySelectorAll('#bankChips .chip').forEach(c => {
+              if (c.textContent.trim() === ocrData.bank.trim()) selectChip(c, 'bank');
+            });
+          }
+          if (ocrData.account) { document.getElementById('account').value = ocrData.account; document.getElementById('fieldAccount').classList.remove('has-error'); }
+        }
+        card.querySelector('.photo-card-hint').textContent = '✅ Данные заполнены';
+      } else {
+        card.querySelector('.photo-card-hint').textContent = file.name.slice(0, 20);
+      }
+    } catch(e) {
+      card.querySelector('.photo-card-hint').textContent = file.name.slice(0, 20);
+    }
+  } else {
+    card.querySelector('.photo-card-hint').textContent = file.name.slice(0, 20);
+  }
 
   const scanInfo = document.getElementById('scanInfo');
   scanInfo.classList.add('visible');
-  scanInfo.textContent = type === 'id'
-    ? '📷 ID загружен — заполните данные вручную'
-    : '📷 Банковская книжка загружена — заполните данные вручную';
-  setTimeout(() => scanInfo.classList.remove('visible'), 3000);
+  scanInfo.textContent = type === 'id' ? '📷 ID загружен — проверьте данные' : '📷 Книжка загружена — проверьте данные';
+  setTimeout(() => scanInfo.classList.remove('visible'), 4000);
   updateProgress();
 }
 
@@ -852,6 +895,8 @@ function handleSubmit(e) {
     bank:     selectedBank,
     account:  document.getElementById('account').value.trim(),
     extras:   getExtras(),
+    photo_id:   photoLinks.id   || '',
+    photo_bank: photoLinks.bank || '',
   };
 
   if (tg) {
