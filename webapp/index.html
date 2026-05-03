@@ -816,25 +816,53 @@ document.getElementById('idnum').addEventListener('input', (e) => {
 });
 
 // ─── Дополнительные люди ──────────────────────────────────────
+const OPERATORS = ['SKT','KT','LG U+','SKT KADAFON','KT KADAFON','LG KADAFON'];
+const BANKS = ['기업은행 · Айбикей','국민은행 · Кукмин','우리은행 · Урибанк','신한은행 · Шинхан','하나은행 · Хана','농협은행 · Нонхеп','ДРУГОЙ'];
+
 function addExtraPerson() {
   extraPersonCount++;
+  const n = extraPersonCount;
+  const opChips = OPERATORS.map(o => `<div class="chip" onclick="selectExtraChip(this,'op',${n})">${o}</div>`).join('');
+  const bankChips = BANKS.map(b => `<div class="chip" onclick="selectExtraChip(this,'bank',${n})">${b}</div>`).join('');
   const html = `
-    <div class="extra-person" id="extra${extraPersonCount}">
+    <div class="extra-person" id="extra${n}">
       <div class="extra-person-header">
-        <div class="extra-person-title">Дополнительный человек ${extraPersonCount}</div>
-        <button type="button" class="btn-remove" onclick="removeExtra(${extraPersonCount})">Удалить</button>
+        <div class="extra-person-title">Дополнительный человек ${n}</div>
+        <button type="button" class="btn-remove" onclick="removeExtra(${n})">Удалить</button>
       </div>
       <div class="field">
         <label>ФИО</label>
-        <input type="text" placeholder="LEE SUNG" />
+        <input type="text" placeholder="LEE SUNG" id="extra${n}_name"/>
       </div>
       <div class="field">
         <label>ID номер</label>
-        <input type="text" placeholder="901231-1234567" inputmode="numeric" />
+        <input type="text" placeholder="901231-1234567" inputmode="numeric" id="extra${n}_idnum"/>
+      </div>
+      <div class="field">
+        <label>Телефон</label>
+        <input type="tel" placeholder="010-1234-5678" inputmode="numeric" id="extra${n}_phone"/>
+      </div>
+      <div class="field">
+        <label>Оператор</label>
+        <div class="chips" id="extra${n}_opChips">${opChips}</div>
+      </div>
+      <div class="field">
+        <label>Банк</label>
+        <div class="chips chips-bank" id="extra${n}_bankChips">${bankChips}</div>
+      </div>
+      <div class="field">
+        <label>Номер счёта</label>
+        <input type="text" placeholder="48891048635707" inputmode="numeric" id="extra${n}_account"/>
       </div>
     </div>
   `;
   document.getElementById('extraPersons').insertAdjacentHTML('beforeend', html);
+}
+
+function selectExtraChip(el, group, n) {
+  const container = document.getElementById(`extra${n}_${group}Chips`);
+  container.querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+  el.classList.add('selected');
 }
 
 function removeExtra(n) {
@@ -846,10 +874,15 @@ function getExtras() {
   for (let i = 1; i <= extraPersonCount; i++) {
     const el = document.getElementById('extra' + i);
     if (!el) continue;
-    const inputs = el.querySelectorAll('input');
-    const name = inputs[0]?.value.trim();
-    const idnum = inputs[1]?.value.trim();
-    if (name || idnum) extras.push({ name, idnum });
+    const name    = document.getElementById(`extra${i}_name`)?.value.trim() || '';
+    const idnum   = document.getElementById(`extra${i}_idnum`)?.value.trim() || '';
+    const phone   = document.getElementById(`extra${i}_phone`)?.value.trim() || '';
+    const account = document.getElementById(`extra${i}_account`)?.value.trim() || '';
+    const opEl    = document.querySelector(`#extra${i}_opChips .chip.selected`);
+    const bankEl  = document.querySelector(`#extra${i}_bankChips .chip.selected`);
+    const operator = opEl?.textContent.trim() || '';
+    const bank     = bankEl?.textContent.trim() || '';
+    if (name || idnum) extras.push({ name, idnum, phone, operator, bank, account });
   }
   return extras;
 }
