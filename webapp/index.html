@@ -43,7 +43,7 @@ body {
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  padding-bottom: 100px;
+  padding-bottom: 140px;
 }
 
 .app {
@@ -455,6 +455,36 @@ body {
 }
 .btn-gallery:active { background: var(--bg-soft); border-color: var(--kompass-light); }
 
+/* Photo action buttons (камера / галерея) */
+.photo-btns {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  margin-top: 8px;
+}
+.btn-photo-action {
+  flex: 1;
+  background: white;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 7px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--kompass-accent);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1.2;
+}
+.btn-photo-action:active { background: var(--bg-soft); border-color: var(--kompass-light); }
+.btn-photo-action input[type="file"] {
+  display: none;
+}
+
 /* SUBMIT BUTTON */
 .submit-bar {
   position: fixed;
@@ -464,7 +494,7 @@ body {
   width: 100%;
   max-width: 480px;
   margin: 0 auto;
-  padding: 16px 20px 20px;
+  padding: 16px 20px calc(20px + env(safe-area-inset-bottom, 0px));
   background: linear-gradient(180deg, transparent 0%, white 30%);
   z-index: 20;
 }
@@ -578,20 +608,42 @@ body {
     <div class="section">
       <div class="section-title section-1">Документы</div>
       <div class="photo-upload">
-        <label class="photo-card" id="idCard">
-          <input type="file" accept="image/*" onchange="onPhoto(event, 'id')">
-          <div class="photo-icon">📷</div>
+        <div class="photo-card" id="idCard">
+          <div class="photo-icon">🪪</div>
           <div class="photo-card-label">ID карта</div>
-          <div class="photo-card-hint">Сделать фото или загрузить с телефона</div>
-          <div class="photo-status">Загружено</div>
-        </label>
-        <label class="photo-card" id="bankCard">
-          <input type="file" accept="image/*" onchange="onPhoto(event, 'bank')">
-          <div class="photo-icon">📷</div>
+          <div class="photo-card-hint">Выберите способ</div>
+          <div class="photo-status">Загружено ✓</div>
+          <div class="photo-btns">
+            <label class="btn-photo-action">
+              <span>📷</span>
+              <span>Камера</span>
+              <input type="file" accept="image/*" capture="camera" onchange="onPhoto(event, 'id')">
+            </label>
+            <label class="btn-photo-action">
+              <span>🖼️</span>
+              <span>Галерея</span>
+              <input type="file" accept="image/*" onchange="onPhoto(event, 'id')">
+            </label>
+          </div>
+        </div>
+        <div class="photo-card" id="bankCard">
+          <div class="photo-icon">🏦</div>
           <div class="photo-card-label">Банковская книжка</div>
-          <div class="photo-card-hint">Сделать фото или загрузить с телефона</div>
-          <div class="photo-status">Загружено</div>
-        </label>
+          <div class="photo-card-hint">Выберите способ</div>
+          <div class="photo-status">Загружено ✓</div>
+          <div class="photo-btns">
+            <label class="btn-photo-action">
+              <span>📷</span>
+              <span>Камера</span>
+              <input type="file" accept="image/*" capture="camera" onchange="onPhoto(event, 'bank')">
+            </label>
+            <label class="btn-photo-action">
+              <span>🖼️</span>
+              <span>Галерея</span>
+              <input type="file" accept="image/*" onchange="onPhoto(event, 'bank')">
+            </label>
+          </div>
+        </div>
       </div>
       <div class="scan-info" id="scanInfo">
         ⚙️ Фото загружено — заполните данные ниже
